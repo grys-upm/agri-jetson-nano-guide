@@ -3,7 +3,10 @@
 # Author            : Alberto Sánchez Sánchez
 # Creation Date     : 2025-04-08
 # Description       : AI algorithm used to do segmentation classification of good 
-#                     carrots and brush. Decision making support.
+#                     carrots and brush. Decision making support. 
+#                     This code was runned out of Jetson Nano due to the train
+#                     process. Model saved to be later load and inference time
+#                     in Edge Computing (Jetson Nano)
 #
 # Copyright         : © 2025 Alberto & DTE UPM department. All rights reserved.
 # License           : This code is private and may not be distributed without 
@@ -22,6 +25,7 @@ import cv2
 from sklearn.model_selection import train_test_split
 import segmentation_models as sm
 import os
+import matplotlib.pyplot as plt
 
 IMG_SIZE = 256
 N_CLASSES = 3 #Red, green and black(for background)
@@ -48,6 +52,7 @@ def convert_mask_to_class(mask_rgb):
 #------------------------------------------------------------------
 def data_from_df(df):
     X, Y = [], []
+    index = []
 
     for i, row in tqdm(df.iterrows(), total=len(df)):
         img = cv2.imread(row['img_path'])
@@ -59,20 +64,21 @@ def data_from_df(df):
 
         X.append(img)
         Y.append(mask_class)
+        index.append(i) #Store the data index to make sure the split is correct
 
     X = np.array(X) / 255
     Y = np.expand_dims(np.array(Y), axis = -1)
     Y_cat = tf.keras.utils.to_categorical(Y, num_classes=N_CLASSES)
+    index = np.array(index)
 
     #75% used for training, 20% for testing and 5% for validation
-    X_train, X_test, Y_train, Y_test = train_test_split(X, Y_cat, test_size=0.25, random_state=42)
+    X_train, X_test, Y_train, Y_test, idx_train, idx_test = train_test_split(X, Y_cat, index, test_size=0.25, random_state=42)
 
-    X_test, X_val, Y_test, Y_val = train_test_split(X_test, Y_test, test_size=0.2, random_state=42)
+    X_test, X_val, Y_test, Y_val, idx_test, idx_val = train_test_split(X_test, Y_test, idx_test, test_size=0.2, random_state=42)
 
-    print("Índices únicos de X_val:", np.unique(X_val))
-    print("¿Hay índices repetidos en X_val?", len(X_val) != len(np.unique(X_val))) 
+    print("Índices de validación:", idx_val)
 
-    return X_train, X_test, X_val, Y_train, Y_test, Y_val
+    return X_train, X_test, X_val, Y_train, Y_test, Y_val, idx_val
 # --------------------------------------------------------------------
 # FUNC: fine_tuning ()-> Train the DeepLabV3 with MobilenetV2 backbone
 #                        with the data we are interested in
@@ -94,7 +100,7 @@ def train_model(X_train, Y_train, X_test, Y_test):
                   loss='categorical_crossentropy',
                   metrics=['accuracy'])
 
-    model.fit(X_train, Y_train,
+    history = model.fit(X_train, Y_train,
               batch_size=BATCH_SIZE,
               epochs=EPOCHS,
               validation_data=(X_test, Y_test))
@@ -102,7 +108,40 @@ def train_model(X_train, Y_train, X_test, Y_test):
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     model.save(MODEL_PATH)
     print(f"Model saved at {MODEL_PATH}")
-    return model
+    return model, history
+
+# ---------------------------------------------------------------
+# FUNC: plot_training_history() -> visualization of model history
+# ---------------------------------------------------------------
+def plot_training_history(history):
+    acc = history.history['accuracy']
+    val_acc = history.history['val_accuracy']
+    loss = history.history['loss']
+    val_loss = history.history['val_loss']
+    epochs_range = range(len(acc))
+
+    plt.figure(figsize=(14, 5))
+
+    # Accuracy
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs_range, acc, label='Training Accuracy')
+    plt.plot(epochs_range, val_acc, label='Validation Accuracy')
+    plt.legend(loc='lower right')
+    plt.xlabel("Epochs")
+    plt.ylabel("Accuracy")
+    plt.title('Training and Validation Accuracy')
+
+    # Loss
+    plt.subplot(1, 2, 2)
+    plt.plot(epochs_range, loss, label='Training Loss')
+    plt.plot(epochs_range, val_loss, label='Validation Loss')
+    plt.legend(loc='upper right')
+    plt.xlabel("Epochs")
+    plt.ylabel("Loss")
+    plt.title('Training and Validation Loss')
+
+    plt.tight_layout()
+    plt.show()
 
 # --------------------------------------------------
 # FUNC: predict_and_show() -> do a visual prediction
@@ -143,14 +182,15 @@ if __name__ == "__main__":
 
     df = get_dataframe()
 
-    X_train, X_test, X_val, Y_train, Y_test, Y_val = data_from_df(df)
-    model = train_model(X_train, Y_train, X_test, Y_test)
+    X_train, X_test, X_val, Y_train, Y_test, Y_val, idx_val = data_from_df(df)
+    model, history = train_model(X_train, Y_train, X_test, Y_test)
+    plot_training_history(history)
 
     #Show which validation images are selected to be predicted
-    val_images = df.iloc[X_val.flatten()].reset_index(drop=True)['img_path'].tolist()
+    val_images = df.loc[idx_val]['img_path'].tolist()
     print("Validation images:")
-    #for idx, val_img in enumerate(val_images):
-    #    print(f"{idx}: {val_img}")
+    for i, path in enumerate(val_images):
+        print(f"{i}: {path}")
 
     #Introduce by keyboard which validation image index is going to be predicted
     try:

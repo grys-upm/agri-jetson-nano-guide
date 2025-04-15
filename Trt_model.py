@@ -22,16 +22,18 @@ tf.saved_model.save(model, "saved_model") #Save the optimized model for TensorRT
 
 params = trt.TrtConversionParams(
     precision_mode = trt.TrtPrecisionMode.FP16,
-    max_workspace_size_bytes= 1 << 255
+    max_workspace_size_bytes= 1 << 28
 )
 
 converter = trt.TrtGraphConverterV2(
-    input_saved_model_dir = "saved_model",
+    input_saved_model_dir = "Unet_trt_model",
     conversion_params = params
 )
 
 converter.convert()
 converter.save("Unet_trt.model")
+
+
 
 
 

@@ -94,16 +94,40 @@ def train_model(X_train, Y_train, X_test, Y_test):
 
     sm.set_framework('tf.keras')
     sm.framework()
-    model = sm.Unet('mobilenetv2', classes=N_CLASSES, activation='softmax')
+    model = sm.Unet('mobilenetv2', classes=N_CLASSES, 
+                    activation='softmax', encoder_weights = 'imagenet')
+    
+    for layer in model.layers:
+        if 'encoder' in layer.name:
+            layer.trainable = False
 
     model.compile(optimizer=adam_optimizer,
                   loss='categorical_crossentropy',
-                  metrics=['accuracy'])
+                  metrics=['accuracy', sm.metrics.iou_score])
+    
+    early_stop = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, verbose=1)
 
+    print("Training only decoder part")
+    history1 = model.fit(X_train, Y_train,
+              batch_size=BATCH_SIZE,
+              epochs=EPOCHS,
+              validation_data=(X_test, Y_test),
+              callbacks = [early_stop, reduce_lr])
+    
+    for layer in model.layers:
+        layer.trainable = True
+
+    model.compile(optimizer=adam_optimizer,
+                  loss='categorical_crossentropy',
+                  metrics=['accuracy', sm.metrics.iou_score])
+    
+    print("Training encoder - decoder part")
     history = model.fit(X_train, Y_train,
               batch_size=BATCH_SIZE,
               epochs=EPOCHS,
-              validation_data=(X_test, Y_test))
+              validation_data=(X_test, Y_test),
+              callbacks = [early_stop, reduce_lr])
 
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     model.save(MODEL_PATH)
@@ -118,12 +142,14 @@ def plot_training_history(history):
     val_acc = history.history['val_accuracy']
     loss = history.history['loss']
     val_loss = history.history['val_loss']
+    iou = history.history.get('iou_score', None)
+    val_iou = history.history.get('val_iou_score', None)
     epochs_range = range(len(acc))
 
     plt.figure(figsize=(14, 5))
 
     # Accuracy
-    plt.subplot(1, 2, 1)
+    plt.subplot(1, 3, 1)
     plt.plot(epochs_range, acc, label='Training Accuracy')
     plt.plot(epochs_range, val_acc, label='Validation Accuracy')
     plt.legend(loc='lower right')
@@ -132,13 +158,22 @@ def plot_training_history(history):
     plt.title('Training and Validation Accuracy')
 
     # Loss
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 3, 2)
     plt.plot(epochs_range, loss, label='Training Loss')
     plt.plot(epochs_range, val_loss, label='Validation Loss')
     plt.legend(loc='upper right')
     plt.xlabel("Epochs")
     plt.ylabel("Loss")
     plt.title('Training and Validation Loss')
+
+    # mIOU
+    plt.subplot(1, 3, 3)
+    plt.plot(epochs_range, iou, label='Training mIoU')
+    plt.plot(epochs_range, val_iou, label='Validation mIoU')
+    plt.legend(loc='lower right')
+    plt.xlabel("Epochs")
+    plt.ylabel("mIoU")
+    plt.title('Training and Validation mIoU')
 
     plt.tight_layout()
     plt.show()

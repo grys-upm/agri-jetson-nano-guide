@@ -84,7 +84,7 @@ def data_from_df(df):
 #                        with the data we are interested in
 # --------------------------------------------------------------------
 def train_model(X_train, Y_train, X_test, Y_test):
-    print("Training DeepLabV3 model + MobileNetV2")
+    print("Training Unet model + MobileNetV2")
 
     adam_optimizer = tf.keras.optimizers.Adam(
         learning_rate=0.0001,    # Learning rate 
@@ -130,7 +130,7 @@ def train_model(X_train, Y_train, X_test, Y_test):
               callbacks = [early_stop, reduce_lr])
 
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-    model.save(MODEL_PATH)
+    #model.save(MODEL_PATH)
     print(f"Model saved at {MODEL_PATH}")
     return model, history
 
